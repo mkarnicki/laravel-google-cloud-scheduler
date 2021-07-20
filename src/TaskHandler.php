@@ -6,6 +6,7 @@ use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Container\Container;
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Artisan;
 
 class TaskHandler
@@ -16,6 +17,7 @@ class TaskHandler
     private $kernel;
     private $schedule;
     private $container;
+    private $logger;
 
     public function __construct(
         Command $command,
@@ -23,7 +25,8 @@ class TaskHandler
         OpenIdVerificator $openId,
         Kernel $kernel,
         Schedule $schedule,
-        Container $container
+        Container $container,
+        Logger $logger
     ) {
         $this->command = $command;
         $this->request = $request;
@@ -31,6 +34,7 @@ class TaskHandler
         $this->kernel = $kernel;
         $this->schedule = $schedule;
         $this->container = $container;
+        $this->logger = $logger;
     }
 
     /**
@@ -42,9 +46,7 @@ class TaskHandler
 
         set_time_limit(0);
 
-        $output = $this->runCommand($this->command->captureWithoutArtisan());
-
-        return $this->cleanOutput($output);
+        return $this->runCommand($this->command->captureWithoutArtisan());
     }
 
     /**
@@ -67,23 +69,29 @@ class TaskHandler
 
     private function runCommand($command)
     {
-        if ($this->isScheduledCommand($command)) {
-            $scheduledCommand = $this->getScheduledCommand($command);
+        $scheduledCommand = $this->isScheduledCommand($command)
+            ? $this->getScheduledCommand($command)
+            : new NullScheduledCommand();
 
-            if ($scheduledCommand->withoutOverlapping && ! $scheduledCommand->mutex->create($scheduledCommand)) {
-                return null;
-            }
-
-            $scheduledCommand->callBeforeCallbacks($this->container);
-
-            Artisan::call($command);
-
-            $scheduledCommand->callAfterCallbacks($this->container);
-        } else {
-            Artisan::call($command);
+        if ($scheduledCommand->withoutOverlapping && !$scheduledCommand->mutex->create($scheduledCommand)) {
+            return response('', 201);
         }
 
-        return Artisan::output();
+        try {
+            $scheduledCommand->callBeforeCallbacks($this->container);
+            Artisan::call($command);
+            $this->logger->log(Artisan::output());
+            $scheduledCommand->callAfterCallbacks($this->container);
+            return response('', 201);
+        } catch (\Throwable $e) {
+            if ($scheduledCommand->withoutOverlapping) {
+                $scheduledCommand->mutex->forget($scheduledCommand);
+            }
+
+            $this->logger->log((string) $e, true);
+
+            return response('', 500);
+        }
     }
 
     private function isScheduledCommand($command)
@@ -115,10 +123,5 @@ class TaskHandler
         $parts = explode('artisan', $command);
 
         return substr($parts[1], 2, strlen($parts[1]));
-    }
-
-    private function cleanOutput($output)
-    {
-        return trim($output);
     }
 }

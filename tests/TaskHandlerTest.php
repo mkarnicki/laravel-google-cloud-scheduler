@@ -18,6 +18,7 @@ use Mockery;
 use phpseclib\Crypt\RSA;
 use Stackkit\LaravelGoogleCloudScheduler\CloudSchedulerException;
 use Stackkit\LaravelGoogleCloudScheduler\Command;
+use Stackkit\LaravelGoogleCloudScheduler\Logger;
 use Stackkit\LaravelGoogleCloudScheduler\OpenIdVerificator;
 use Stackkit\LaravelGoogleCloudScheduler\TaskHandler;
 use Throwable;
@@ -64,7 +65,8 @@ class TaskHandlerTest extends TestCase
             $this->openId,
             app(Kernel::class),
             app(Schedule::class),
-            Container::getInstance()
+            Container::getInstance(),
+            new Logger()
         );
     }
 
