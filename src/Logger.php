@@ -12,6 +12,8 @@ class Logger
      */
     private $logger;
 
+    private const CLOUD_LOGGING_PAYLOAD_MAX_BYTES = 256000;
+
     public function __construct()
     {
         $this->logger = new LoggingClient([
@@ -31,10 +33,19 @@ class Logger
             ],
         ]);
 
-        $entry = $logger->entry($output, [
-            'severity' => $isError ? CloudLogger::ERROR : CloudLogger::INFO,
-        ]);
+        $this->chunk($output, function ($chunk) use ($logger, $isError) {
+            $entry = $logger->entry($chunk, [
+                'severity' => $isError ? CloudLogger::ERROR : CloudLogger::INFO,
+            ]);
 
-        $logger->write($entry);
+            $logger->write($entry);
+        });
+    }
+
+    private function chunk($string, $closure)
+    {
+        foreach (str_split($string, self::CLOUD_LOGGING_PAYLOAD_MAX_BYTES) as $chunk) {
+            $closure($chunk);
+        }
     }
 }
